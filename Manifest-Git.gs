@@ -1,8 +1,7 @@
 function onOpen() {
+  // Create Menu Item 'Manifest Git' and sub entries
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var csvMenuEntries = [{name: "export as csv files", functionName: "saveAsCSV"}];
   var gitMenuEntries = [{name: "Branch", functionName: "branch"},{name: "Diff Current", functionName: "diff_current"}, {name: "Diff All", functionName: "diff_all"}];
-  ss.addMenu("CSV", csvMenuEntries);
   ss.addMenu("Manifest-Git", gitMenuEntries);
 };
 
@@ -31,17 +30,22 @@ function diff_all() {
   for (var i=0; i < current_sheets.length; i++) {
       var current_sheet = current_sheets[i]
       var curr_name = current_sheet.getName();
-      for (var j=0; j < current_sheets.length; j++) {
+      var found = false;
+      for (var j=0; j < master_sheets.length; j++) {
         var master_sheet = master_sheets[j]
         var master_name = master_sheet.getName();
         if (curr_name.equals(master_name)){
-          built_string += diff_sheet(current_sheet, master_sheet);
+          found = true;
+          built_string += diff_sheet(master_sheet, current_sheet);
         }
+      }
+      if (!found) {
+        built_string += "<h3>Sheet Not Found: " + curr_name + "</h3><p style=\"color:red;text-align:center;margin:0;\">Sheet does not exist in Master Version, or is differently named</p>"
       }
   }
   
   var html_string = append(prepend() + built_string);
-  Browser.msgBox(html_string);
+  // Browser.msgBox(html_string);
   var html = HtmlService.createHtmlOutput(html_string).setTitle('Diff Display');
   SpreadsheetApp.getUi().showSidebar(html);
 }
@@ -69,12 +73,17 @@ function diff_current() {
 }
 
 function diff_sheet(sheet_a, sheet_b) {
-  var html = "<h3> On Sheet: <bold>" + sheet_a.getName() + "</bold></h3>";
+  //Master Sheet always as a, current as b
+  var insertions = 0;
+  var deletions = 0;
+  var modifications = 0;
+  var title = "<h3><normal> On Sheet: </normal><bold>" + sheet_a.getName() + "</bold></h3>";
   var data_a = sheet_a.getDataRange();
   var data_b = sheet_b.getDataRange();
   var values_a = data_a.getValues();
   var values_b = data_b.getValues();
   var found_diff = false; 
+  var html = "";
   
   try {
     for (var i=0; i < values_a.length; i++) {
@@ -86,16 +95,34 @@ function diff_sheet(sheet_a, sheet_b) {
           if (!found_diff) {
             found_diff = true;
           }
-          html += "<p>Difference on coord: (" + (i+1).toString() + ", " + toCol(j) + ") <br></p>";
-          html += "<p style=\"color:green;text-align:center;\">" + a_value +
-            "<br><\p><p style=\"text-align:center;\">      <===============>      <\p><p style=\"color:red;text-align:center;\"><br> " + b_value + "</p>";
+          
+          // Current no Longer has Value -> Deletion
+          if (b_value.equals("")) {
+            html += "<p>Deletion on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
+            html += "<p style=\"color:red;text-align:center;\">" + a_value + "</p>";
+            deletions++; 
+            
+          // Current has Value where Master has nothing -> Insertion
+          } else if (a_value.equals("")) {
+            html += "<p>Insertion on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
+            html += "<p style=\"color:green;text-align:center;\">" + b_value + "</p>";
+            insertions++;
+            
+          // Current and Master both have value but Differ -> Modification 
+          }else {
+            html += "<p>Modified on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
+            html += "<p style=\"color:green;text-align:center;\">" + a_value +
+              "<\p><p style=\"text-align:center;margin:0;\">      <===============>      <\p><p style=\"color:red;text-align:center;margin:0;\"> " + b_value + "</p>";
+            modifications++; 
+          }
         }
       }
     }
+    // If there are no Differences -> mark as such 
     if (found_diff) {
-      return html;
+      return title + "<p>Modifcations: " + modifications + " Insertions: " + insertions + " Deletions: " + deletions + "</p>" + html;
     } else {
-      return html += "<p style=\"display:inline-block;\"> No Difference </p>"
+      return title += "<p style=\"display:inline-block;\"> No Difference </p>"
     }
   } 
   catch(err) {
@@ -110,7 +137,7 @@ function toCol(num){
 }
 
 function prepend() {
-  var html = "<!DOCTYPE html><html><head><style type=\"text/css\">.p{line-height:110%;margin-top:0px;margin-bottom:0px;bottom:0;top:0;}.h3{margin:0;line-height:110%;.body{padding:0;margin:0;}</style><base target=\"_top\"></head><body>"
+  var html = "<!DOCTYPE html><html><head><style>.p{margin:0;}.h3{margin:0;}.body{padding:0;margin:0;}</style><base target=\"_top\"></head><body>"
   return html;
 }
 
