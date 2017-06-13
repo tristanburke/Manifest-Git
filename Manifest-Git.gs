@@ -10,14 +10,16 @@ function onOpen() {
   var ui = SpreadsheetApp.getUi();
   // Or DocumentApp or FormApp.
   ui.createMenu('Manifest Control')
-      .addItem('Branch', 'branch')
+      .addItem('Branch (copy)', 'branch')
       .addSubMenu(ui.createMenu('Diff')
-          .addItem('Diff Sheet With Master', 'diff_current')
-          .addItem('Diff All With Master', 'diff_all')
-          .addItem('Diff Sheet With Other Version', 'diff_with_other')
-          .addItem('Diff Sheet With Full Table View', 'diff_current_with_daff'))
+          .addItem('Diff Sheet With Master (Simple)', 'diff_current')
+          .addItem('Diff All With Master (Simple)', 'diff_all')
+          .addItem('Diff Sheet With Other Version (Simple)', 'diff_with_other')
+          .addItem('Diff Sheet With Full Table View (Robust)', 'diff_current_with_daff'))
       .addItem("Validate Against Ontology", "validate")
-      .addItem("Merge", "merge")
+      .addSubMenu(ui.createMenu('Merge')
+          .addItem('Merge with other', 'merge')
+          .addItem('Overwrite to Master', 'overwrite_to_master'))
       .addToUi();
 };
 // Include file -> used in Html file to include stylesheet
@@ -25,65 +27,93 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename)
       .getContent();
 }
-
+// Currently retrieve master version - may have to alter later - possibly retrieve by Unique Google Sheet ID 
 function retrieve_master() {
-  // Currently retrieve master version - may have to alter later - possibly retrieve by Unique Google Sheet ID 
   try { 
     master_Spreadsheet = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/11j392Y2P2tJ8LUgTGVklejheYmTYTQlfPG8aXekVcbc/edit#gid=995555814");
   } catch(err) {
     Browser.msgBox("Could not retrieve Master Manifest: " + err);
   }
 }
-
+// Check to see if current Branch is already Master Manifest - True if so, false otherwise
 function check_branch(current) {
-  // Check to see if current Branch is already Master Manifest - True if so, false otherwise
   if (current.getId().equals(master_Spreadsheet.getId())) {
       Browser.msgBox("You already appear to be on the master copy");
       return true;
   }
   return false; 
 }
-
+// Basic Branch - Copy
 function branch() {
-  // Get Active SpreadSheet
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Import Master Sheet
+  retrieve_master();
   
-  // Check if branch, prompt to continue? 
-  if (check_branch(current)) {
-    Browser.msgBox("You already appear to be on a Branch of the master. Close to continue.");
-  }
+  // Get Active SpreadSheet
+  var current = SpreadsheetApp.getActiveSpreadsheet();
   
   // Copy of Active SpreadSheet #TODO -> Optimize, taking too long 
-  var new_ss = ss.copy(Session.getActiveUserLocale() + new Date().getTime());
+  var new_ss = current.copy("Manifest - " + Utilities.formatDate(new Date(), "GMT", "yyyy-MM-dd HH:mm:ss"));
   var url = new_ss.getUrl();
   
   // Prompt with link to new copy of Manifest. 
   SpreadsheetApp.setActiveSpreadsheet(new_ss);
   showurl(url);
 }
+// Merge two children to Master
 function merge() {
   // Import Master Sheet
   retrieve_master();
   
+  // Import Other Spreadsheet
+  var other_Spreadsheet = retrieve_other();
+  if (other_Spreadsheet == null) {return; };
+  
   // Get Active Spreadsheet - current
   var current = SpreadsheetApp.getActive();
   
+  // Retrieve Other Sheet
   // Check to see if already on Master
   if (check_branch(current)) {return;}
+  
+  // TO DO - VISUAL OF MERGE CONFLICTS WITH USER INPUT
+  
   
   // Prompt with link to new copy of Manifest. 
   SpreadsheetApp.setActiveSpreadsheet(new_ss);
   showurl(url);
 }
+// Overwrite current Spreadsheet to Master Copy
+function overwrite_to_master() {
+  // Import Master Sheet
+  retrieve_master();
+  
+  // Check to see if already on Master
+  if (check_branch(current)) {return;}
+  
+  // Prompt User for URL to other SpreadSheet
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.alert('Script will overwite Master Manifest with current Spreadsheet - Contine?', ui.ButtonSet.YES_NO);
 
+  // Process the user's response.
+  if (response != ui.Button.YES){return;}
+  Browser.msgBox("Working yay");
+  
+}
 function validate() {
-  // First Idea - Since manifest is organzied by sheet and then row, will begin by parsing each bit of information by Sheet Name and then Row Name
+  // First Idea - Retrieve 'Ontology Property' Column and insert in list
   var current = SpreadsheetApp.getActive();
   var current_sheet = current.getActiveSheet();
-  var sheet_name = current_sheet.getName();
-  var data = current_sheet.getDataRange().getValues();
-  var title = data[5][0];
-  Browser.msgBox(sheet_name + ":" + title.toString());
+  var current_sheet_values = current_sheet.getDataRange().getValues();
+  var ontology_properties = [];
+  if (current_sheet_values[2][1].toString() == "Ontology Property") {
+    for (var i = 3; i < current_sheet.getDataRange().getHeight(); i++) {
+       var val = current_sheet_values[i][1].toString();
+       if (val != "") {
+         ontology_properties.push(val);
+       }
+    }
+    Browser.msgBox(String(ontology_properties));
+  }
 }
 function diff_all() {  
   // Import Master Sheet
@@ -148,26 +178,16 @@ function diff_current() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-function diff_with_other() { 
-  var ui = SpreadsheetApp.getUi();
-  var response = ui.prompt('Diff with other version of Manifest', 'URL to Version:', ui.ButtonSet.OK);
-
-  // Process the user's response.
-  var other_url = response.getResponseText()
+function diff_with_other() {
+  // Import Master Sheet
+  retrieve_master(); 
   
   // Import Other Spreadsheet
-  var other_Spreadsheet;
-  try { 
-    other_Spreadsheet = SpreadsheetApp.openByUrl(other_url);
-  } catch(err) {
-    Browser.msgBox("Could not retrieve Other Manifest: " + err);
-  }
+  var other_Spreadsheet = retrieve_other();
+  if (other_Spreadsheet == null) {return; };
    
   // Gett Active Spreadsheet - current
   var current = SpreadsheetApp.getActive();
-  
-  // Check to see if already on Master
-  if (check_branch(current)) {return;}
   
   // Get current sheet on Current spreadsheet, then get get corresponding sheet for 
   var c1 = current.getActiveSheet();
@@ -201,7 +221,7 @@ function diff_sheet(sheet_a, sheet_b) {
     for (var i=0; i < values_b.length; i++) {
       // Check to see if within range of Rows of Master Copy = ROW INSERTION
       if (i >= values_a.length) {
-        var row_string = "<p>Row Insert at: " + i + "</p><p class=\"insertion\"> Values: ";
+        var row_string = "<p>Row Insert at: " + i + "<p class=\"insertion\">";
         for (var j=0; j < values_b[i].length; j++){
            row_string += values_b[i][j].toString() + " | ";
            insertions++
@@ -238,7 +258,11 @@ function diff_sheet(sheet_a, sheet_b) {
         }
       }
       //Check if Copy missed range of col of Master Copy - COL DELETION
-      if (j < values_b[i].length) {
+      if (j < values_a[i].length) {
+          for (var j2 = j; j2 < values_a[i].length; j2++) {
+            html += deletion(i,j,values_a[i][j2].toString());
+            deletions++;
+          }
       }
     }
     //Check if Copy missed range of rows of Master Copy - ROW DELETION
@@ -280,7 +304,24 @@ var Alpha = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q"
 function toCol(num){
   return Alpha[num];
 }
+function retrieve_other() { 
+  // Prompt User for URL to other SpreadSheet
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('Diff with other version of Manifest', 'URL to Version:', ui.ButtonSet.OK);
 
+  // Process the user's response.
+  var other_url = response.getResponseText()
+  
+  // Import Other Spreadsheet
+  var other_Spreadsheet;
+  try { 
+    other_Spreadsheet = SpreadsheetApp.openByUrl(other_url);
+  } catch(err) {
+    Browser.msgBox("Could not retrieve Other Manifest: " + err);
+    return null;
+  }
+  return other_Spreadsheet;
+}
 // Show Clickable link to User
 function showurl(url) {
   var app = UiApp.createApplication().setHeight('60').setWidth('200');
@@ -293,22 +334,7 @@ function showurl(url) {
   doc.show(app);
 }
 
-function saveAsCSV(Spreadsheet, name) {
-  var ss = Spreadsheet;
-  var sheets = ss.getSheets();
-  // create a folder from the name of the spreadsheet
-  var folder = DriveApp.createFolder(name);
-  for (var i = 0 ; i < sheets.length ; i++) {
-    var sheet = sheets[i];
-    // append ".csv" extension to the sheet name
-    fileName = sheet.getName() + ".csv";
-    // convert all available sheet data to csv format
-    var csvFile = convertRangeToCsvFile_(sheet);
-    // create a file in the Docs List with the given name and the csv data
-    folder.createFile(fileName, csvFile);
-  }
-}
-
+// Convert to CSV @found online 
 function convertRangeToCsvFile_(sheet) {
   // get available data range in the spreadsheet
   var activeRange = sheet.getDataRange();
@@ -343,6 +369,7 @@ function convertRangeToCsvFile_(sheet) {
     Browser.msgBox(err);
   }
 }
+// Robust Diff using Daff Library -> create a HTML Table to display  
 function diff_current_with_daff() {
   // Import Master Sheet
   retrieve_master(); 
@@ -368,6 +395,6 @@ function diff_current_with_daff() {
   // Call Daff Function 
   var html_string = prepend + daff_sheets(c1_csv, m1_csv) + append; 
   var html = HtmlService.createHtmlOutput(html_string).setTitle('Diff Display').setWidth(1000).setHeight(600);
-  Browser.msgBox(html_string);
+  // Browser.msgBox(html_string);
   SpreadsheetApp.getUi().showModelessDialog(html,"Diff with Table  -  Ignore Null and Empty Cells - Unchanged");
 }
