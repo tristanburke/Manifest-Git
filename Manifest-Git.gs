@@ -1,6 +1,7 @@
 // Global Variables
 var master_Spreadsheet; 
-var stylesheet = "<style>p{margin: 0;font-size: 15px;}h3{margin:10px;}.center{text-align:center;}.deletion{color: red;}.insertion{color: green;}</style>"
+var stylesheet = "<style>p{margin: 0;font-size: 15px;}h3{margin-bottom:0;margin-top:5px;margin-left:0;}.center{text-align:center;}.deletion{color: red;}" +
+".insertion{color: green;}.remove{color:red;}.add{color:green;}.modify{font-weight:bold;}table,th,td{border: 1px solid black;}</style>";
 var prepend = "<!DOCTYPE html><html><head>"+ stylesheet + "</head><body>";
 var append = "</body></html>";
 
@@ -8,12 +9,13 @@ function onOpen() {
   // Create Menu Item 'Manifest Git' and sub entries
   var ui = SpreadsheetApp.getUi();
   // Or DocumentApp or FormApp.
-  ui.createMenu('Manifest Git')
+  ui.createMenu('Manifest Control')
       .addItem('Branch', 'branch')
       .addSubMenu(ui.createMenu('Diff')
           .addItem('Diff Sheet With Master', 'diff_current')
           .addItem('Diff All With Master', 'diff_all')
-          .addItem('Diff Sheet With Other Version', 'diff_with_other'))
+          .addItem('Diff Sheet With Other Version', 'diff_with_other')
+          .addItem('Diff Sheet With Full Table View', 'diff_current_with_daff'))
       .addItem("Validate Against Ontology", "validate")
       .addItem("Merge", "merge")
       .addToUi();
@@ -59,11 +61,35 @@ function branch() {
   SpreadsheetApp.setActiveSpreadsheet(new_ss);
   showurl(url);
 }
+function merge() {
+  // Import Master Sheet
+  retrieve_master();
+  
+  // Get Active Spreadsheet - current
+  var current = SpreadsheetApp.getActive();
+  
+  // Check to see if already on Master
+  if (check_branch(current)) {return;}
+  
+  // Prompt with link to new copy of Manifest. 
+  SpreadsheetApp.setActiveSpreadsheet(new_ss);
+  showurl(url);
+}
+
+function validate() {
+  // First Idea - Since manifest is organzied by sheet and then row, will begin by parsing each bit of information by Sheet Name and then Row Name
+  var current = SpreadsheetApp.getActive();
+  var current_sheet = current.getActiveSheet();
+  var sheet_name = current_sheet.getName();
+  var data = current_sheet.getDataRange().getValues();
+  var title = data[5][0];
+  Browser.msgBox(sheet_name + ":" + title.toString());
+}
 function diff_all() {  
   // Import Master Sheet
   retrieve_master(); 
    
-  // Gett Active Spreadsheet - current
+  // Get Active Spreadsheet - current
   var current = SpreadsheetApp.getActive();
   
   // Check to see if already on Master
@@ -117,26 +143,25 @@ function diff_current() {
   }
   
   var html_string = prepend + diff_sheet(m1,c1) + append;
-  Browser.msgBox(html_string);
+  // Browser.msgBox(html_string);
   var html = HtmlService.createHtmlOutput(html_string).setTitle('Diff Display');
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
 function diff_with_other() { 
-  var ui = DocumentApp.getUi();
-  var response = ui.prompt('Getting to know you', 'May I know your name?', ui.ButtonSet.YES_NO);
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('Diff with other version of Manifest', 'URL to Version:', ui.ButtonSet.OK);
 
   // Process the user's response.
-  if (response.getSelectedButton() == ui.Button.YES) {
-    Logger.log('The user\'s name is %s.', response.getResponseText());
-  } else if (response.getSelectedButton() == ui.Button.NO) {
-    Logger.log('The user didn\'t want to provide a name.');
-  } else {
-    Logger.log('The user clicked the close button in the dialog\'s title bar.');
-  }
+  var other_url = response.getResponseText()
   
-  // Import Master Sheet
-  retrieve_master(); 
+  // Import Other Spreadsheet
+  var other_Spreadsheet;
+  try { 
+    other_Spreadsheet = SpreadsheetApp.openByUrl(other_url);
+  } catch(err) {
+    Browser.msgBox("Could not retrieve Other Manifest: " + err);
+  }
    
   // Gett Active Spreadsheet - current
   var current = SpreadsheetApp.getActive();
@@ -148,13 +173,12 @@ function diff_with_other() {
   var c1 = current.getActiveSheet();
   var sheet_name = c1.getName();
   try {
-    var m1 = master_Spreadsheet.getSheetByName(sheet_name);
+    var o1 = other_Spreadsheet.getSheetByName(sheet_name);
   } catch (err) {
     Browser.msg("It appears this sheet does not exist or has a different name on Master Copy");
   }
   
-  var html_string = prepend + diff_sheet(m1,c1) + append;
-  Browser.msgBox(html_string);
+  var html_string = prepend + diff_sheet(o1,c1) + append;
   var html = HtmlService.createHtmlOutput(html_string).setTitle('Diff Display');
   SpreadsheetApp.getUi().showSidebar(html);
 }
@@ -173,40 +197,57 @@ function diff_sheet(sheet_a, sheet_b) {
   var html = "";
   
   try {
-    for (var i=0; i < values_a.length; i++) {
-      for (var j=0; j < values_a[i].length; j++) {
-        var a_value = values_a[i][j].toString();
-        var b_value = values_b[i][j].toString();
-        
-        if (!(a_value.equals(b_value))) {
-          if (!found_diff) {
-            found_diff = true;
-          }
-          
-          // Current no Longer has Value -> Deletion
-          if (b_value.equals("")) {
-            html += "<p>Deletion on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
-            html += "<p class=\"deletion center\">" + a_value + "</p>";
-            deletions++; 
-            
-          // Current has Value where Master has nothing -> Insertion
-          } else if (a_value.equals("")) {
-            html += "<p>Insertion on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
-            html += "<p class=\"insertion center\">" + b_value + "</p>";
-            insertions++;
-            
-          // Current and Master both have value but Differ -> Modification 
-          }else {
-            html += "<p>Modified on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
-            html += "<p class=\"deletion center\">" + a_value + "</p><p class=\"center\">      <===============>      </p><p class=\"insertion center\"> " + b_value + "</p>";
-            modifications++; 
+  // Iterate through values of Copy
+    for (var i=0; i < values_b.length; i++) {
+      // Check to see if within range of Rows of Master Copy = ROW INSERTION
+      if (i >= values_a.length) {
+        var row_string = "<p>Row Insert at: " + i + "</p><p class=\"insertion\"> Values: ";
+        for (var j=0; j < values_b[i].length; j++){
+           row_string += values_b[i][j].toString() + " | ";
+           insertions++
+        }
+        html = html + row_string + "</p>";
+        continue;
+      }
+      for (var j=0; j < values_b[i].length; j++) {
+        // Check to see if within range of cols of Master Copy = COL INSERTION
+        if (j >= values_a[i].length) {
+          html += insertion(i,j,values_b[i][j].toString());
+          insertions++;
+        } else {
+          var a_value = values_a[i][j].toString();
+          var b_value = values_b[i][j].toString();
+          if (!(a_value.equals(b_value))) {
+            if (!found_diff) {
+              found_diff = true;
+            } 
+            // Current no Longer has Value -> Deletion
+            if (b_value.equals("")) {
+              html += deletion(i,j,a_value);
+              deletions++; 
+            // Current has Value where Master has nothing -> Insertion
+            } else if (a_value.equals("")) {
+              html += insertion(i,j,b_value);
+              insertions++;
+            // Current and Master both have value but Differ -> Modification 
+            }else {
+              html += modification(i,j,a_value,b_value);
+              modifications++; 
+            }
           }
         }
       }
+      //Check if Copy missed range of col of Master Copy - COL DELETION
+      if (j < values_b[i].length) {
+      }
     }
+    //Check if Copy missed range of rows of Master Copy - ROW DELETION
+    if (i < values_b.length){
+    }
+    
     // If there are no Differences -> mark as such 
     if (found_diff) {
-      return title + "<p style=\"margin:0;\">Modifcations: " + modifications + " Insertions: " + insertions + " Deletions: " + deletions + "</p>" + html;
+      return title + "<p>Modifcations: " + modifications + " Insertions: " + insertions + " Deletions: " + deletions + "</p>" + html;
     } else {
       return title += "<p style=\"display:inline-block;margin:0;\"> No Difference </p>"
     }
@@ -216,16 +257,31 @@ function diff_sheet(sheet_a, sheet_b) {
     Browser.msgBox(err);
   }  
 }
-
-function validate() {
+// Helper Function for Deletion - Coordinates and Value
+function deletion(i,j,a_value) {
+  var html = "<p>Deletion on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
+  html += "<p class=\"deletion center\">" + a_value + "</p>";
+  return html;
 }
-
-// Helper functions
+// Helper Function for Insertion - Coordinates and Value
+function insertion(i,j,b_value) {
+  var html = "<p>Insertion on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
+  html += "<p class=\"insertion center\">" + b_value + "</p>";
+  return html;
+}
+// Helper Function for Modifcation - Coordinates and two Values
+function modification(i,j,a_value,b_value) {
+  var html = "<p>Modified on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
+  html += "<p class=\"deletion center\">" + a_value + "</p><p class=\"center\">      <===============>      </p><p class=\"insertion center\"> " + b_value + "</p>";
+  return html;
+}
+// Helper functions for Table Coordinates
 var Alpha = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"];
 function toCol(num){
   return Alpha[num];
 }
 
+// Show Clickable link to User
 function showurl(url) {
   var app = UiApp.createApplication().setHeight('60').setWidth('200');
   app.setTitle("Branch");
@@ -311,7 +367,7 @@ function diff_current_with_daff() {
   
   // Call Daff Function 
   var html_string = prepend + daff_sheets(c1_csv, m1_csv) + append; 
-  var html = HtmlService.createHtmlOutput(html_string).setTitle('Diff Display');
+  var html = HtmlService.createHtmlOutput(html_string).setTitle('Diff Display').setWidth(1000).setHeight(600);
   Browser.msgBox(html_string);
-  SpreadsheetApp.getUi().showSidebar(html);
+  SpreadsheetApp.getUi().showModelessDialog(html,"Diff with Table  -  Ignore Null and Empty Cells - Unchanged");
 }
