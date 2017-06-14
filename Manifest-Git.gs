@@ -1,5 +1,6 @@
 // Global Variables
-var master_Spreadsheet; 
+var master_Spreadsheet; //Pointer to Master Manifest Copy -> retrieved by retrieve_master() 
+// Static HTML used to build sidebard display and full table view
 var stylesheet = "<style>p{margin: 0;font-size: 15px;}h3{margin-bottom:0;margin-top:5px;margin-left:0;}.center{text-align:center;}.deletion{color: red;}" +
 ".insertion{color: green;}.remove{color:red;}.add{color:green;}.modify{font-weight:bold;}table,th,td{border: 1px solid black;}</style>";
 var prepend = "<!DOCTYPE html><html><head>"+ stylesheet + "</head><body>";
@@ -16,18 +17,23 @@ function onOpen() {
           .addItem('Diff All With Master (Simple)', 'diff_all')
           .addItem('Diff Sheet With Other Version (Simple)', 'diff_with_other')
           .addItem('Diff Sheet With Full Table View (Robust)', 'diff_current_with_daff'))
-      .addItem("Validate Against Ontology", "validate")
       .addSubMenu(ui.createMenu('Merge')
           .addItem('Merge with other', 'merge')
           .addItem('Overwrite to Master', 'overwrite_to_master'))
+      .addSeparator()
+      .addSubMenu(ui.createMenu("Validate Against Ontology")
+          .addItem("Validate Sheet", "validate")
+          .addItem("Validate All", "validate_all"))
       .addToUi();
+  retrieve_master();
+  // TODO - ADD automatic Validate upon opening 
 };
 // Include file -> used in Html file to include stylesheet
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename)
       .getContent();
 }
-// Currently retrieve master version - may have to alter later - possibly retrieve by Unique Google Sheet ID 
+// Retrieve current master version - may have to alter later - possibly retrieve by Unique Google Sheet ID 
 function retrieve_master() {
   try { 
     master_Spreadsheet = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/11j392Y2P2tJ8LUgTGVklejheYmTYTQlfPG8aXekVcbc/edit#gid=995555814");
@@ -37,6 +43,7 @@ function retrieve_master() {
 }
 // Check to see if current Branch is already Master Manifest - True if so, false otherwise
 function check_branch(current) {
+  retrieve_master();
   if (current.getId().equals(master_Spreadsheet.getId())) {
       Browser.msgBox("You already appear to be on the master copy");
       return true;
@@ -51,6 +58,7 @@ function branch() {
   // Get Active SpreadSheet
   var current = SpreadsheetApp.getActiveSpreadsheet();
   
+  // TO DO - Prompt User for TITLE to then prepend to 'Manifest' and date 
   // Copy of Active SpreadSheet #TODO -> Optimize, taking too long 
   var new_ss = current.copy("Manifest - " + Utilities.formatDate(new Date(), "GMT", "yyyy-MM-dd HH:mm:ss"));
   var url = new_ss.getUrl();
@@ -59,6 +67,9 @@ function branch() {
   SpreadsheetApp.setActiveSpreadsheet(new_ss);
   showurl(url);
 }
+
+
+/*   ############### MERGE ################# */ 
 // Merge two children to Master
 function merge() {
   // Import Master Sheet
@@ -87,6 +98,9 @@ function overwrite_to_master() {
   // Import Master Sheet
   retrieve_master();
   
+  // Get Active Spreadsheet - current
+  var current = SpreadsheetApp.getActive();
+  
   // Check to see if already on Master
   if (check_branch(current)) {return;}
   
@@ -96,9 +110,29 @@ function overwrite_to_master() {
 
   // Process the user's response.
   if (response != ui.Button.YES){return;}
-  Browser.msgBox("Working yay");
   
+  // Clear Every Sheet in Master Sheet
+  var master_sheets = master_Spreadsheet.getSheets();
+  var last_sheet = master_Spreadsheet.insertSheet("Last Sheet - To Be Deleted");
+  for (var i = 0; i < master_sheets.length; i++) {
+    master_Spreadsheet.deleteSheet(master_sheets[i]);
+  }
+  
+  // Copy every sheet in Current to Master Spreadsheet
+  var current_sheets = current.getSheets();
+  for (var i = 0; i < current_sheets.length; i++) {
+    current_sheets[i].copyTo(master_Spreadsheet);
+  }
+  master_Spreadsheet.deleteSheet(last_sheet);
+  // Change name from "copy of" to Regulare
+  var master_sheets = master_Spreadsheet.getSheets();
+  for (var i = 0; i < master_sheets.length; i++) {
+    master_sheets[i].setName(current_sheets[i].getName());
+  }
 }
+
+
+/*   ############### VALIDATE ################# */ 
 function validate() {
   // First Idea - Retrieve 'Ontology Property' Column and insert in list
   var current = SpreadsheetApp.getActive();
@@ -112,9 +146,23 @@ function validate() {
          ontology_properties.push(val);
        }
     }
-    Browser.msgBox(String(ontology_properties));
+    var property_paths = parse_property(ontology_properties);
   }
 }
+function parse_property(properties) {
+  var parsed_properties = []; // create an empty array
+  
+  for(var i=0; i < properties.length; i++){
+    var current = properties[i];
+    var split_string = current.split(":");
+    Browser.msgBox(split_string);
+    parsed_properties.push(split_string);
+  }
+  return parsed_properties;
+}
+
+
+/*   ############### DIFF ALL WITH MASTER ################# */ 
 function diff_all() {  
   // Import Master Sheet
   retrieve_master(); 
@@ -153,6 +201,8 @@ function diff_all() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
+
+/*   ############### DIFF SHEET WITH MASTER ################# */ 
 function diff_current() {
   // Import Master Sheet
   retrieve_master(); 
@@ -178,6 +228,8 @@ function diff_current() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
+
+/*   ############### DIFF WITH OTHER  ################# */ 
 function diff_with_other() {
   // Import Master Sheet
   retrieve_master(); 
@@ -203,6 +255,7 @@ function diff_with_other() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
+/*   ############### DIFF SHEET ################# */ 
 function diff_sheet(sheet_a, sheet_b) {
   //Master Sheet always as a, current as b
   var insertions = 0;
@@ -281,6 +334,9 @@ function diff_sheet(sheet_a, sheet_b) {
     Browser.msgBox(err);
   }  
 }
+
+
+/*   ############### HELPER FUNCTIONS  ################# */ 
 // Helper Function for Deletion - Coordinates and Value
 function deletion(i,j,a_value) {
   var html = "<p>Deletion on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
