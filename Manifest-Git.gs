@@ -59,8 +59,12 @@ function branch() {
   var current = SpreadsheetApp.getActiveSpreadsheet();
   
   // TO DO - Prompt User for TITLE to then prepend to 'Manifest' and date 
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('Enter Title for new Manifest Copy', 'Title:', ui.ButtonSet.OK);
+  var Title = response.getResponseText()
+  
   // Copy of Active SpreadSheet #TODO -> Optimize, taking too long 
-  var new_ss = current.copy("Manifest - " + Utilities.formatDate(new Date(), "GMT", "yyyy-MM-dd HH:mm:ss"));
+  var new_ss = current.copy(Title + " (Manifest Copy) - " + Utilities.formatDate(new Date(), "PST", "yyyy-MM-dd HH:mm:ss"));
   var url = new_ss.getUrl();
   
   // Prompt with link to new copy of Manifest. 
@@ -86,12 +90,32 @@ function merge() {
   // Check to see if already on Master
   if (check_branch(current)) {return;}
   
-  // TO DO - VISUAL OF MERGE CONFLICTS WITH USER INPUT
+  /** TO DO - VISUAL OF MERGE CONFLICTS WITH USER INPUT
+   PLAN keep track of Diff's through Coordinates -> Diff both current and other
+   with master sheet -> build array of Coord for each. Compare arrays, and present 
+   merge conflict if both diff at same Coord -> present basic UI with values and a button to choose 
+   one over other (left title vs. right title) -> then build single array with coord from both 
+   individual arrays, and chosen coord in both, and write diff values to master 
+   **/
+  // var merge_current_master;
+  // var merge_other_master;
+  var c1 = current.getActiveSheet();
+  var sheet_name = c1.getName();
+  try {
+    var m1 = master_Spreadsheet.getSheetByName(sheet_name);
+  } catch (err) {
+    Browser.msg("It appears this sheet does not exist or has a different name on Master Copy");
+    return;
+  }
+  
+  var merge = diff_sheet(m1, c1, true);
+  Browser.msgBox(merge[1][0]);
+  return;
   
   
   // Prompt with link to new copy of Manifest. 
-  SpreadsheetApp.setActiveSpreadsheet(new_ss);
-  showurl(url);
+  // SpreadsheetApp.setActiveSpreadsheet(new_ss);
+  // showurl(url);
 }
 // Overwrite current Spreadsheet to Master Copy
 function overwrite_to_master() {
@@ -187,7 +211,8 @@ function diff_all() {
         var master_name = master_sheet.getName();
         if (curr_name.equals(master_name)){
           found = true;
-          built_string += diff_sheet(master_sheet, current_sheet);
+          var temp = diff_sheet(master_sheet, current_sheet);
+          built_string += temp[0];
         }
       }
       if (!found) {
@@ -220,9 +245,11 @@ function diff_current() {
     var m1 = master_Spreadsheet.getSheetByName(sheet_name);
   } catch (err) {
     Browser.msg("It appears this sheet does not exist or has a different name on Master Copy");
+    return;
   }
   
-  var html_string = prepend + diff_sheet(m1,c1) + append;
+  var temp = diff_sheet(m1,c1);
+  var html_string = prepend + temp[0] + append;
   // Browser.msgBox(html_string);
   var html = HtmlService.createHtmlOutput(html_string).setTitle('Diff Display');
   SpreadsheetApp.getUi().showSidebar(html);
@@ -248,15 +275,20 @@ function diff_with_other() {
     var o1 = other_Spreadsheet.getSheetByName(sheet_name);
   } catch (err) {
     Browser.msg("It appears this sheet does not exist or has a different name on Master Copy");
+    return;
   }
   
-  var html_string = prepend + diff_sheet(o1,c1) + append;
+  var temp_String, merge = diff_sheet(c1, o1);
+  var html_string = prepend + temp_String + append;
   var html = HtmlService.createHtmlOutput(html_string).setTitle('Diff Display');
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
 /*   ############### DIFF SHEET ################# */ 
-function diff_sheet(sheet_a, sheet_b) {
+function diff_sheet(sheet_a, sheet_b, _merge) {
+  // implement _merge as optional parameter -> default false, true when using diff for merge
+  if (typeof _merge === 'undefined') { _merge = false; }
+  
   //Master Sheet always as a, current as b
   var insertions = 0;
   var deletions = 0;
@@ -268,12 +300,16 @@ function diff_sheet(sheet_a, sheet_b) {
   var values_b = data_b.getValues();
   var found_diff = false; 
   var html = "";
+  var coord_and_diff = []
   
   try {
   // Iterate through values of Copy
     for (var i=0; i < values_b.length; i++) {
       // Check to see if within range of Rows of Master Copy = ROW INSERTION
       if (i >= values_a.length) {
+        if (!found_diff) {
+              found_diff = true;
+        }
         var row_string = "<p>Row Insert at: " + i + "<p class=\"insertion\">";
         for (var j=0; j < values_b[i].length; j++){
            row_string += values_b[i][j].toString() + " | ";
@@ -291,9 +327,15 @@ function diff_sheet(sheet_a, sheet_b) {
           var a_value = values_a[i][j].toString();
           var b_value = values_b[i][j].toString();
           if (!(a_value.equals(b_value))) {
+            // Boolean for "No Difference" summary 
             if (!found_diff) {
               found_diff = true;
-            } 
+            }
+            // Information for Merging
+            if (_merge) {
+              var temp = [i, j, b_value];
+              coord_and_diff.push(temp)
+            }
             // Current no Longer has Value -> Deletion
             if (b_value.equals("")) {
               html += deletion(i,j,a_value);
@@ -324,14 +366,15 @@ function diff_sheet(sheet_a, sheet_b) {
     
     // If there are no Differences -> mark as such 
     if (found_diff) {
-      return title + "<p>Modifcations: " + modifications + " Insertions: " + insertions + " Deletions: " + deletions + "</p>" + html;
+      return [title + "<p>Modifcations: " + modifications + " Insertions: " + insertions + " Deletions: " + deletions + "</p>" + html, coord_and_diff];
     } else {
-      return title += "<p style=\"display:inline-block;margin:0;\"> No Difference </p>"
+      return [title += "<p style=\"display:inline-block;margin:0;\"> No Difference </p>", coord_and_diff];
     }
   } 
   catch(err) {
     Logger.log(err);
     Browser.msgBox(err);
+    return;
   }  
 }
 
