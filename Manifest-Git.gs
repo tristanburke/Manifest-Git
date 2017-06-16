@@ -1,8 +1,17 @@
 // Global Variables
 var master_Spreadsheet; //Pointer to Master Manifest Copy -> retrieved by retrieve_master() 
 // Static HTML used to build sidebard display and full table view
-var stylesheet = "<style>p{margin: 0;font-size: 15px;}h3{margin-bottom:0;margin-top:5px;margin-left:0;}.center{text-align:center;}.deletion{color: red;}" +
-".insertion{color: green;}.remove{color:red;}.add{color:green;}.modify{font-weight:bold;}table,th,td{border: 1px solid black;}</style>";
+var stylesheet = "<style>\
+                      p{margin: 0;font-size: 15px;}\
+                      h3{margin-bottom:0;margin-top:5px;margin-left:0;}\
+                      .center{text-align:center;}\
+                      .deletion{color: red;}\
+                      .insertion{color: green;}\
+                      .remove{color:red;}\
+                      .add{color:green;}\
+                      .modify{font-weight:bold;}\
+                      table,th,td{border: 1px solid black;}\
+                  </style>";
 var prepend = "<!DOCTYPE html><html><head>"+ stylesheet + "</head><body>";
 var append = "</body></html>";
 
@@ -18,8 +27,9 @@ function onOpen() {
           .addItem('Diff Sheet With Other Version (Simple)', 'diff_with_other')
           .addItem('Diff Sheet With Full Table View (Robust)', 'diff_current_with_daff'))
       .addSubMenu(ui.createMenu('Merge')
-          .addItem('Merge with other', 'merge')
-          .addItem('Overwrite to Master', 'overwrite_to_master'))
+          .addItem('Merge With Other', 'merge_sheet')
+          .addItem('Write to Master', 'overwrite_to_master')
+          .addItem('Override Master', 'override_master'))
       .addSeparator()
       .addSubMenu(ui.createMenu("Validate Against Ontology")
           .addItem("Validate Sheet", "validate")
@@ -75,20 +85,30 @@ function branch() {
 
 /*   ############### MERGE ################# */ 
 // Merge two children to Master
-function merge() {
+function merge_sheet() {
   // Import Master Sheet
   retrieve_master();
+  
+  // Get Active Spreadsheet - current
+  var current = SpreadsheetApp.getActive();
+  
+  // Check to see if already on Master
+  if (check_branch(current)) {return;}
   
   // Import Other Spreadsheet
   var other_Spreadsheet = retrieve_other();
   if (other_Spreadsheet == null) {return; };
   
-  // Get Active Spreadsheet - current
-  var current = SpreadsheetApp.getActive();
-  
-  // Retrieve Other Sheet
-  // Check to see if already on Master
-  if (check_branch(current)) {return;}
+  // Retrieve Corresponding Sheet for Other and Master 
+  var c1 = current.getActiveSheet();
+  var sheet_name = c1.getName();
+  try {
+    var m1 = master_Spreadsheet.getSheetByName(sheet_name);
+    var o1 = other_Spreadsheet.getSheetByName(sheet_name);
+  } catch (err) {
+    Browser.msg("It appears this sheet does not exist or has a different name on Master Copy");
+    return;
+  }
   
   /** TO DO - VISUAL OF MERGE CONFLICTS WITH USER INPUT
    PLAN keep track of Diff's through Coordinates -> Diff both current and other
@@ -97,22 +117,61 @@ function merge() {
    one over other (left title vs. right title) -> then build single array with coord from both 
    individual arrays, and chosen coord in both, and write diff values to master 
    **/
-  // var merge_current_master;
-  // var merge_other_master;
-  var c1 = current.getActiveSheet();
-  var sheet_name = c1.getName();
-  try {
-    var m1 = master_Spreadsheet.getSheetByName(sheet_name);
-  } catch (err) {
-    Browser.msg("It appears this sheet does not exist or has a different name on Master Copy");
-    return;
+  var merge_current_master = diff_sheet(m1, c1, true)[1];
+  var merge_other_master = diff_sheet(m1, o1, true)[1];
+  
+  var diff_conflict = [];
+  var diff_master = [];
+  
+  // Iterate through Current, check for same coordinates 
+  for (var i = 0; i < merge_current_master.length; i++) {
+    var conflict = false;
+    var curr_coord_diff = merge_current_master[i]
+    for (var j = 0; j < merge_other_master.length; j++) {
+      if (merge_other_master[j] != null) {
+        if (curr_coord_diff[0] == merge_other_master[j][0]) {
+          if (curr_coord_diff[1] == merge_other_master[j][1]){
+            // Mark Conflict for current -> Don't add Diff to diff_master
+            conflict = true;
+            // Store Conlfict in diff_conflict, Format === [i, j, [curr_value, other_value]]
+            diff_conflict.push([curr_coord_diff[0], curr_coord_diff[1], [curr_coord_diff[2], merge_other_master[j][2]]]);
+            // Mark Conflict for other -> Don't add Diff to diff_master, no longer need double reference, marked for quicker looping
+            merge_other_master[j] = null;
+          }
+        }
+      }
+    }
+    if (!conflict) {
+      diff_master.push(curr_coord_diff);
+    }
   }
+  for (var i = 0; i < merge_other_master.length; i++) {
+    if (merge_other_master[i] != null) {
+      diff_master.push(merge_other_master[i]);
+    }
+  }
+  Browser.msgBox(diff_conflict.length);
+  var ui = SpreadsheetApp.getUi();
+  var diff_resolution = [];
+  for (var i = 0; i < diff_conflict.length; i++) {
+    // Prompt User for URL to other SpreadSheet
+    var curr_diff = diff_conflict[i];
+    var ui = SpreadsheetApp.getUi();
+    var response = ui.alert('Merge Conflict: Press YES to pick LEFT value. Press NO to pick RIGHT value', "At Coordinate : ("
+    +  (curr_diff[0]+1).toString() + ", " + toCol(curr_diff[1]) + ")\n\n" + 
+    current.getName() + ":" + curr_diff[2][0] + "\n\n" + 
+    other_Spreadsheet.getName() + ":" + curr_diff[2][1] + "\n\n" , 
+    ui.ButtonSet.YES_NO);
   
-  var merge = diff_sheet(m1, c1, true);
-  Browser.msgBox(merge[1][0]);
+    // Process the user's response.
+    if (response != ui.Button.YES){
+     
+    } else {
+    
+    }  
+  }
   return;
-  
-  
+     
   // Prompt with link to new copy of Manifest. 
   // SpreadsheetApp.setActiveSpreadsheet(new_ss);
   // showurl(url);
