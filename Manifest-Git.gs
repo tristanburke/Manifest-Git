@@ -27,9 +27,10 @@ function onOpen() {
           .addItem('Diff Sheet With Other Version (Simple)', 'diff_with_other')
           .addItem('Diff Sheet With Full Table View (Robust)', 'diff_current_with_daff'))
       .addSubMenu(ui.createMenu('Merge')
-          .addItem('Merge With Other', 'merge_sheet')
-          .addItem('Write Sheet to Master', 'overwrite_to_master')
-          .addItem('Override Master', 'override_master'))
+          .addItem('Merge With Other', 'merge_with_other')
+          .addItem('Write Sheet to Master (Simple)', 'write_sheet')
+          .addItem('Write All to Master (Simple)', 'write_all')
+          .addItem('Override Master (Robust)', 'override_master'))
       .addSeparator()
       .addSubMenu(ui.createMenu("Validate Against Ontology")
           .addItem("Validate Sheet", "validate")
@@ -85,7 +86,7 @@ function branch() {
 
 /*   ############### MERGE ################# */ 
 // Merge two children to Master
-function merge_sheet() {
+function merge_with_other() {
   // Import Master Sheet
   retrieve_master();
   
@@ -179,8 +180,8 @@ function merge_sheet() {
   // SpreadsheetApp.setActiveSpreadsheet(new_ss);
   // showurl(url);
 }
-// Write an array of diffs on a sheet to same sheet on Master
-function write_diffs(diffs, sheet_name) {
+// Write all Sheets to Master
+function write_all() {
   // Import Master Sheet
   retrieve_master();
   
@@ -190,17 +191,62 @@ function write_diffs(diffs, sheet_name) {
   // Check to see if already on Master
   if (check_branch(current)) {return;}
   
-  // Get designated Sheet from Master
-  var master_sheet;
+  // Get Sheets
+  var current_sheets = current.getSheets();
+  var master_sheets = master_Spreadsheet.getSheets();
+  
+  var pages_written = ""
+  for (var i=0; i < current_sheets.length; i++) {
+      var current_sheet = current_sheets[i]
+      var curr_name = current_sheet.getName();
+      try {
+        var master_sheet = master_Spreadsheet.getSheetByName(curr_name);
+        var merge_current_master = diff_sheet(master_sheet, current_sheet, true)[1];
+        if (merge_current_master.length > 0) {
+          write_diffs(merge_current_master, master_sheet);
+          pages_written += curr_name + '\n,';
+        }
+      } catch (err) {
+      
+        
+      }
+  }
+  if (pages_written == "") {
+    Browser.msgBox("Done. No Changes - nothing written");
+  } else {
+    Browser.msgBox("Done. Written to Master. Pages overwritten:\n" + pages_written); 
+  }
+}
+// Write Current Sheet to Master
+function write_sheet() {
+  // Import Master Sheet
+  retrieve_master();
+  
+  // Get Active Spreadsheet - current
+  var current = SpreadsheetApp.getActive();
+  
+  // Check to see if already on Master
+  if (check_branch(current)) {return;}
+  
+  // Get Sheet and check master also has 
+  var c1 = current.getActiveSheet();
+  var sheet_name = c1.getName();
   try {
-    master_sheet = master_Spreadsheet.getSheetByName(sheet_name);
-  } catch(err) {
-    Browser.msg("Could not retrive " + sheet_name + "on Master Manifest");
+    var m1 = master_Spreadsheet.getSheetByName(sheet_name);
+  } catch (err) {
+    Browser.msg("It appears this sheet does not exist or has a different name on Master Copy");
     return;
   }
-  
+  var merge_current_master = diff_sheet(m1, c1, true)[1];
+  write_diffs(merge_current_master, m1);
+  Browser.msgBox("Done. Sheet written to Master");  
+}
+
+// Write an array of diffs on a sheet to same sheet on Master
+function write_diffs(diffs, master_sheet) {
+
   for (var i=0; i < diffs.length; i++) {
-    var current_cell = master_sheet.getRange(diff[i][0][1]);
+    var current_cell = master_sheet.getRange(diffs[i][0]+1, diffs[i][1]+1);
     var current_value = diffs[i][2];
     current_cell.setValue(current_value);
   }
@@ -293,17 +339,11 @@ function diff_all() {
   for (var i=0; i < current_sheets.length; i++) {
       var current_sheet = current_sheets[i]
       var curr_name = current_sheet.getName();
-      var found = false;
-      for (var j=0; j < master_sheets.length; j++) {
-        var master_sheet = master_sheets[j]
-        var master_name = master_sheet.getName();
-        if (curr_name.equals(master_name)){
-          found = true;
-          var temp = diff_sheet(master_sheet, current_sheet);
-          built_string += temp[0];
-        }
-      }
-      if (!found) {
+      try {
+        var master_sheet = master_Spreadsheet.getSheetByName(curr_name);
+        var temp = diff_sheet(master_sheet, current_sheet);
+        built_string += temp[0];
+      } catch (err) {
         built_string += "<h3>Sheet Not Found: " + curr_name + "</h3><p class=\"center deletion\">Sheet does not exist in Master Version, or is differently named</p>"
       }
   }
