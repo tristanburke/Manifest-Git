@@ -28,7 +28,7 @@ function onOpen() {
           .addItem('Diff Sheet With Full Table View (Robust)', 'diff_current_with_daff'))
       .addSubMenu(ui.createMenu('Merge')
           .addItem('Merge With Other', 'merge_sheet')
-          .addItem('Write to Master', 'overwrite_to_master')
+          .addItem('Write Sheet to Master', 'overwrite_to_master')
           .addItem('Override Master', 'override_master'))
       .addSeparator()
       .addSubMenu(ui.createMenu("Validate Against Ontology")
@@ -150,31 +150,60 @@ function merge_sheet() {
       diff_master.push(merge_other_master[i]);
     }
   }
-  Browser.msgBox(diff_conflict.length);
+  Browser.msgBox("There are " + diff_conflict.length + " Merge Conflicts.\n Press \"OK\" to continue and pick values");
   var ui = SpreadsheetApp.getUi();
   var diff_resolution = [];
   for (var i = 0; i < diff_conflict.length; i++) {
     // Prompt User for URL to other SpreadSheet
     var curr_diff = diff_conflict[i];
     var ui = SpreadsheetApp.getUi();
-    var response = ui.alert('Merge Conflict: Press YES to pick LEFT value. Press NO to pick RIGHT value', "At Coordinate : ("
+    var response = ui.alert("Press YES to pick " + current.getName() + " value.\n Press NO to pick " + other_Spreadsheet.getName()
+    + " value.\n At Coordinate : ("
     +  (curr_diff[0]+1).toString() + ", " + toCol(curr_diff[1]) + ")\n\n" + 
-    current.getName() + ":" + curr_diff[2][0] + "\n\n" + 
-    other_Spreadsheet.getName() + ":" + curr_diff[2][1] + "\n\n" , 
-    ui.ButtonSet.YES_NO);
+    "YES: " + current.getName() + ":" + curr_diff[2][0] + "\n\n" + 
+    "NO: " + other_Spreadsheet.getName() + ":" + curr_diff[2][1] + "\n\n" , 
+    ui.ButtonSet.YES_NO_CANCEL);
   
     // Process the user's response.
-    if (response != ui.Button.YES){
-     
-    } else {
-    
-    }  
+    if (response == ui.Button.YES){
+     diff_master.push([curr_diff[0], curr_diff[1], curr_diff[2][0]]);
+    } else if (response == ui.Button.NO) {
+     diff_master.push([curr_diff[0], curr_diff[1], curr_diff[2][1]]);
+    }  else {
+      return;
+    }
   }
   return;
      
   // Prompt with link to new copy of Manifest. 
   // SpreadsheetApp.setActiveSpreadsheet(new_ss);
   // showurl(url);
+}
+// Write an array of diffs on a sheet to same sheet on Master
+function write_diffs(diffs, sheet_name) {
+  // Import Master Sheet
+  retrieve_master();
+  
+  // Get Active Spreadsheet - current
+  var current = SpreadsheetApp.getActive();
+  
+  // Check to see if already on Master
+  if (check_branch(current)) {return;}
+  
+  // Get designated Sheet from Master
+  var master_sheet;
+  try {
+    master_sheet = master_Spreadsheet.getSheetByName(sheet_name);
+  } catch(err) {
+    Browser.msg("Could not retrive " + sheet_name + "on Master Manifest");
+    return;
+  }
+  
+  for (var i=0; i < diffs.length; i++) {
+    var current_cell = master_sheet.getRange(diff[i][0][1]);
+    var current_value = diffs[i][2];
+    current_cell.setValue(current_value);
+  }
 }
 // Overwrite current Spreadsheet to Master Copy
 function overwrite_to_master() {
@@ -373,7 +402,12 @@ function diff_sheet(sheet_a, sheet_b, _merge) {
         for (var j=0; j < values_b[i].length; j++){
            row_string += values_b[i][j].toString() + " | ";
            insertions++
+           if (_merge) {
+              var temp = [i, j, values_b[i][j]];
+              coord_and_diff.push(temp)
+           }
         }
+        
         html = html + row_string + "</p>";
         continue;
       }
