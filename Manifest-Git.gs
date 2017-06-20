@@ -27,7 +27,7 @@ function onOpen() {
           .addItem('Diff Sheet With Other Version (Simple)', 'diff_with_other')
           .addItem('Diff Sheet With Full Table View (Robust)', 'diff_current_with_daff'))
       .addSubMenu(ui.createMenu('Merge')
-          .addItem('Merge With Other', 'merge_with_other')
+          .addItem('Merge (Simple)', 'merge_with_other')
           .addItem('Write Sheet to Master (Simple)', 'write_sheet')
           .addItem('Write All to Master (Simple)', 'write_all')
           .addItem('Override Master (Robust)', 'override_master'))
@@ -86,7 +86,7 @@ function branch() {
 
 /*   ############### MERGE ################# */ 
 // Merge two children to Master
-function merge_with_other() {
+function merge_with_other(other_Spreadsheet) {
   // Import Master Sheet
   retrieve_master();
   
@@ -96,9 +96,7 @@ function merge_with_other() {
   // Check to see if already on Master
   if (check_branch(current)) {return;}
   
-  // Import Other Spreadsheet
-  var other_Spreadsheet = retrieve_other();
-  if (other_Spreadsheet == null) {return; };
+  if (other_Spreadsheet == null) {Browser.msgBox("Spreadsheet is Null, check branches");return;};
   
   // Retrieve Corresponding Sheet for Other and Master 
   var c1 = current.getActiveSheet();
@@ -171,9 +169,11 @@ function merge_with_other() {
     } else if (response == ui.Button.NO) {
      diff_master.push([curr_diff[0], curr_diff[1], curr_diff[2][1]]);
     }  else {
+      Browser.msgBox("Merge Aborted. No changes written.");
       return;
     }
   }
+  write_diffs(diff_master, m1);
   return;
      
   // Prompt with link to new copy of Manifest. 
@@ -430,40 +430,30 @@ function diff_sheet(sheet_a, sheet_b, _merge) {
   var html = "";
   var coord_and_diff = []
   
+  var end_row = 0;
+  var end_col = 0;
   try {
   // Iterate through values of Copy
     for (var i=0; i < values_b.length; i++) {
-      // Check to see if within range of Rows of Master Copy = ROW INSERTION
-      if (i >= values_a.length) {
-        if (!found_diff) {
-              found_diff = true;
-        }
-        var row_string = "<p>Row Insert at: " + i + "<p class=\"insertion\">";
-        for (var j=0; j < values_b[i].length; j++){
-           row_string += values_b[i][j].toString() + " | ";
-           insertions++
-           if (_merge) {
-              var temp = [i, j, values_b[i][j]];
-              coord_and_diff.push(temp)
-           }
-        }
-        
-        html = html + row_string + "</p>";
-        continue;
-      }
       for (var j=0; j < values_b[i].length; j++) {
-        // Check to see if within range of cols of Master Copy = COL INSERTION
-        if (j >= values_a[i].length) {
-          html += insertion(i,j,values_b[i][j].toString());
-          insertions++;
+        // Check to see if within range of Rows of Master Copy 
+        if (i >= values_a.length || j >= values_a[i].length) {
+             if (values_b[i][j] != "") { 
+               if (!found_diff) { found_diff = true;}
+               if (_merge) {
+                  var temp = [i, j, values_b[i][j]];
+                  coord_and_diff.push(temp)
+               }
+               html += insertion(i,j,values_b[i][j].toString());
+               insertions++;
+            }
         } else {
           var a_value = values_a[i][j].toString();
           var b_value = values_b[i][j].toString();
           if (!(a_value.equals(b_value))) {
             // Boolean for "No Difference" summary 
-            if (!found_diff) {
-              found_diff = true;
-            }
+            if (!found_diff) { found_diff = true;}
+            
             // Information for Merging
             if (_merge) {
               var temp = [i, j, b_value];
@@ -485,16 +475,26 @@ function diff_sheet(sheet_a, sheet_b, _merge) {
           }
         }
       }
-      //Check if Copy missed range of col of Master Copy - COL DELETION
-      if (j < values_a[i].length) {
-          for (var j2 = j; j2 < values_a[i].length; j2++) {
-            html += deletion(i,j,values_a[i][j2].toString());
-            deletions++;
-          }
-      }
+      end_row = i;
+      end_col = j;
     }
     //Check if Copy missed range of rows of Master Copy - ROW DELETION
-    if (i < values_b.length){
+    if (end_row < values_a.length || end_col < values_a[0].length){
+      for (var i = 0; i < values_a.length; i++) {
+        for (var j = 0; j < values_a[i].length; j++) {
+          if (i > end_row || j > end_col){
+            if (values_a[i][j] != "") {
+              if (!found_diff) { found_diff = true;}
+              if (_merge) {
+                var temp = [i, j, values_a[i][j]];
+                coord_and_diff.push(temp)
+              }
+              html += deletion(i,j,values_a[i][j].toString());
+              deletions++;
+            }
+          }
+        }
+      }
     }
     
     // If there are no Differences -> mark as such 
