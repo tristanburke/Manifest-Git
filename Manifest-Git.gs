@@ -37,7 +37,9 @@ function onOpen() {
           .addItem('Write Sheet to Master (Simple)', 'write_sheet')
           .addItem('Write All to Master (Simple)', 'write_all')
           .addItem('Override Master (Robust)', 'override_master'))
-      .addItem('Pull (Current Sheet)', 'pull')
+      .addSubMenu(ui.createMenu('Pull')
+          .addItem('Pull (Sheet)', 'pull_sheet')
+          .addItem('Pull Overwrite (Sheet)', 'pull_override'))
       .addSeparator()
       .addSubMenu(ui.createMenu("Validate Against Ontology")
           .addItem("Validate Sheet", "validate")
@@ -314,7 +316,8 @@ function pull_sheet() {
   }
   
   var diff_conflict = diff_sheet(m1, c1, true)[1];
-  var m1_values = m1.getDataRange().getValues();
+  var m1_data = m1.getDataRange();
+  var m1_values = m1_data.getValues();
   
   Browser.msgBox("There are " + diff_conflict.length + " Differences Between Current and Master.\n Press \"OK\" to continue and pick values");
   var ui = SpreadsheetApp.getUi();
@@ -322,26 +325,26 @@ function pull_sheet() {
   for (var i = 0; i < diff_conflict.length; i++) {
     var curr_diff = diff_conflict[i];
     var ui = SpreadsheetApp.getUi();
-    var response = ui.alert("Press YES to pick " + current.getName() + " value.\n Press NO to pick " + master_Spreadsheet.getName()
+    var response = ui.alert("Press YES to pick Master Manifest value.\n Press NO to pick " + current.getName()
     + " value.\n At Coordinate : ("
     +  (curr_diff[0]+1).toString() + ", " + toCol(curr_diff[1]) + ")\n\n" + 
-    "YES: " + current.getName() + ":" + curr_diff[2] + "\n\n" + 
-    "NO: Master Copy:" + m1_values[curr_diff[0], curr_diff[1]] + "\n\n" , 
+    "YES: Master Copy:  " + m1_values[curr_diff[0]][ curr_diff[1]] + "\n\n" +
+    "NO: "  + current.getName() + ":  " + curr_diff[2] + "\n\n",
     ui.ButtonSet.YES_NO_CANCEL);
   
     // Process the user's response.
-    if (response == ui.Button.YES){
+    if (response == ui.Button.NO){
      diff_master.push([curr_diff[0], curr_diff[1], curr_diff[2]]);
-    } else if (response == ui.Button.NO) {
-     diff_master.push([curr_diff[0], curr_diff[1], m1_values[curr_diff[0], curr_diff[1]]]);
+    } else if (response == ui.Button.YES) {
+     diff_master.push([curr_diff[0], curr_diff[1], m1_values[curr_diff[0]][ curr_diff[1]]]);
     }  else {
-      Browser.msgBox("Merge Aborted. No changes written.");
+      Browser.msgBox("Pull Aborted. No changes written.");
       return;
     }
   }
   
   write_diffs(diff_master, c1);
-  Browser.msgBox("Done. Sheet written to Master"); 
+  Browser.msgBox("Done. Master Sheet pulled to " + current.getName()); 
 }
 
 /*   ############### VALIDATE ################# */ 
@@ -540,7 +543,7 @@ function diff_sheet(sheet_a, sheet_b, _merge) {
             if (values_a[i][j] != "") {
               if (!found_diff) { found_diff = true;}
               if (_merge) {
-                var temp = [i, j, values_a[i][j]];
+                var temp = [i, j, ""];
                 coord_and_diff.push(temp)
               }
               html += deletion(i,j,values_a[i][j].toString());
