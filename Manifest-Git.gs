@@ -1,5 +1,10 @@
+/* 
+   -*- coding: utf-8 -*-
+   Copyright (c) 2017, Syapse Inc. All rights reserved.
+   Created: 6/14/17
+*/
+   
 // Global Variables
-// Goose eats farts
 var master_Spreadsheet; //Pointer to Master Manifest Copy -> retrieved by retrieve_master() 
 // Static HTML used to build sidebard display and full table view
 var stylesheet = "<style>\
@@ -32,6 +37,7 @@ function onOpen() {
           .addItem('Write Sheet to Master (Simple)', 'write_sheet')
           .addItem('Write All to Master (Simple)', 'write_all')
           .addItem('Override Master (Robust)', 'override_master'))
+      .addItem('Pull (Current Sheet)', 'pull')
       .addSeparator()
       .addSubMenu(ui.createMenu("Validate Against Ontology")
           .addItem("Validate Sheet", "validate")
@@ -40,6 +46,8 @@ function onOpen() {
   retrieve_master();
   // TODO - ADD automatic Validate upon opening 
 };
+
+
 /*   ############### Branch ################# */ 
 // Basic Branch - Copy
 function branch() {
@@ -50,25 +58,25 @@ function branch() {
   var current = SpreadsheetApp.getActiveSpreadsheet();
   
   // Only Branch from Master
-   if (current.getId().equals(master_Spreadsheet.getId())) {
+   if (!(current.getId().equals(master_Spreadsheet.getId()))) {
      Browser.msgBox("Due to the simplicity of this versioning system, branches are only allowed from the Master Manifest");
-     return
+     return;
   }
   // Check for Branches Page -> if not there, create
-  var master_sheets = master_Spreadsheet.getSheets();
+  /*var master_sheets = master_Spreadsheet.getSheets();
   var branches_sheet = master_sheets[master_sheets.length - 1];
   if (branches_sheet.getName() != "Branches" ) {
      branches_sheet = master_Spreadsheet.insertSheet("Branches");
-  }
+  } */
   
-  // TO DO - Prompt User for TITLE to then prepend to 'Manifest' and date 
-  /* var ui = SpreadsheetApp.getUi();
+  // Prompt User for TITLE to then prepend to 'Manifest' and date 
+  var ui = SpreadsheetApp.getUi();
   var response = ui.prompt('Enter Title for new Manifest Copy', 'Title:', ui.ButtonSet.OK);
-  var Title = response.getResponseText()
-  var Date = Utilities.formatDate(new Date(), "PST", "yyyy-MM-dd HH:mm:ss"); */
+  var title = response.getResponseText()
+  var date = Utilities.formatDate(new Date(), "PST", "yyyy-MM-dd HH:mm:ss");
   
   // Copy of Active SpreadSheet #TODO -> Optimize, taking too long 
-  var new_ss = current.copy(Title + " (Manifest Copy) - " + Date);
+  var new_ss = current.copy(title + " (Manifest Copy) - " + date);
   var url = new_ss.getUrl();
   
   // Add new Branch to Branches Sheet on Master
@@ -149,9 +157,7 @@ function merge_with_other() {
   }
   Browser.msgBox("There are " + diff_conflict.length + " Merge Conflicts.\n Press \"OK\" to continue and pick values");
   var ui = SpreadsheetApp.getUi();
-  var diff_resolution = [];
   for (var i = 0; i < diff_conflict.length; i++) {
-    // Prompt User for URL to other SpreadSheet
     var curr_diff = diff_conflict[i];
     var ui = SpreadsheetApp.getUi();
     var response = ui.alert("Press YES to pick " + current.getName() + " value.\n Press NO to pick " + other_Spreadsheet.getName()
@@ -202,11 +208,10 @@ function write_all() {
         var merge_current_master = diff_sheet(master_sheet, current_sheet, true)[1];
         if (merge_current_master.length > 0) {
           write_diffs(merge_current_master, master_sheet);
-          pages_written += curr_name + '\n,';
+          pages_written += curr_name + '\n, ';
         }
       } catch (err) {
-      
-        
+        Browser.msgBox("Could not find sheet: " + curr_name);
       }
   }
   if (pages_written == "") {
@@ -241,10 +246,10 @@ function write_sheet() {
 }
 
 // Write an array of diffs on a sheet to same sheet on Master
-function write_diffs(diffs, master_sheet) {
+function write_diffs(diffs, sheet) {
 
   for (var i=0; i < diffs.length; i++) {
-    var current_cell = master_sheet.getRange(diffs[i][0]+1, diffs[i][1]+1);
+    var current_cell = sheet.getRange(diffs[i][0]+1, diffs[i][1]+1);
     var current_value = diffs[i][2];
     current_cell.setValue(current_value);
   }
@@ -287,6 +292,57 @@ function overwrite_to_master() {
   }
 }
 
+/*   ###############   Pull   ################# */ 
+function pull_sheet() {
+  // Import Master Sheet
+  retrieve_master(); 
+   
+  // Get Active Spreadsheet - current
+  var current = SpreadsheetApp.getActive();
+  
+  // Check to see if already on Master
+  if (check_branch(current)) {return;}
+  
+  // Get current sheet on Current spreadsheet, then get get corresponding sheet from Master 
+  var c1 = current.getActiveSheet();
+  var sheet_name = c1.getName();
+  try {
+    var m1 = master_Spreadsheet.getSheetByName(sheet_name);
+  } catch (err) {
+    Browser.msg("It appears this sheet does not exist or has a different name on Master Copy");
+    return;
+  }
+  
+  var diff_conflict = diff_sheet(m1, c1, true)[1];
+  var m1_values = m1.getDataRange().getValues();
+  
+  Browser.msgBox("There are " + diff_conflict.length + " Differences Between Current and Master.\n Press \"OK\" to continue and pick values");
+  var ui = SpreadsheetApp.getUi();
+  var diff_master = [];
+  for (var i = 0; i < diff_conflict.length; i++) {
+    var curr_diff = diff_conflict[i];
+    var ui = SpreadsheetApp.getUi();
+    var response = ui.alert("Press YES to pick " + current.getName() + " value.\n Press NO to pick " + master_Spreadsheet.getName()
+    + " value.\n At Coordinate : ("
+    +  (curr_diff[0]+1).toString() + ", " + toCol(curr_diff[1]) + ")\n\n" + 
+    "YES: " + current.getName() + ":" + curr_diff[2] + "\n\n" + 
+    "NO: Master Copy:" + m1_values[curr_diff[0], curr_diff[1]] + "\n\n" , 
+    ui.ButtonSet.YES_NO_CANCEL);
+  
+    // Process the user's response.
+    if (response == ui.Button.YES){
+     diff_master.push([curr_diff[0], curr_diff[1], curr_diff[2]]);
+    } else if (response == ui.Button.NO) {
+     diff_master.push([curr_diff[0], curr_diff[1], m1_values[curr_diff[0], curr_diff[1]]]);
+    }  else {
+      Browser.msgBox("Merge Aborted. No changes written.");
+      return;
+    }
+  }
+  
+  write_diffs(diff_master, c1);
+  Browser.msgBox("Done. Sheet written to Master"); 
+}
 
 /*   ############### VALIDATE ################# */ 
 function validate() {
@@ -364,7 +420,7 @@ function diff_current() {
   // Check to see if already on Master
   if (check_branch(current)) {return;}
   
-  // Get current sheet on Current spreadsheet, then get get corresponding sheet for 
+  // Get current sheet on Current spreadsheet, then get get corresponding sheet from Master 
   var c1 = current.getActiveSheet();
   var sheet_name = c1.getName();
   try {
