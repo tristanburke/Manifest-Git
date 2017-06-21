@@ -1,4 +1,5 @@
 // Global Variables
+// Goose eats farts
 var master_Spreadsheet; //Pointer to Master Manifest Copy -> retrieved by retrieve_master() 
 // Static HTML used to build sidebard display and full table view
 var stylesheet = "<style>\
@@ -39,28 +40,7 @@ function onOpen() {
   retrieve_master();
   // TODO - ADD automatic Validate upon opening 
 };
-// Include file -> used in Html file to include stylesheet
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename)
-      .getContent();
-}
-// Retrieve current master version - may have to alter later - possibly retrieve by Unique Google Sheet ID 
-function retrieve_master() {
-  try { 
-    master_Spreadsheet = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/11j392Y2P2tJ8LUgTGVklejheYmTYTQlfPG8aXekVcbc/edit#gid=995555814");
-  } catch(err) {
-    Browser.msgBox("Could not retrieve Master Manifest: " + err);
-  }
-}
-// Check to see if current Branch is already Master Manifest - True if so, false otherwise
-function check_branch(current) {
-  retrieve_master();
-  if (current.getId().equals(master_Spreadsheet.getId())) {
-      Browser.msgBox("You already appear to be on the master copy");
-      return true;
-  }
-  return false; 
-}
+/*   ############### Branch ################# */ 
 // Basic Branch - Copy
 function branch() {
   // Import Master Sheet
@@ -69,14 +49,30 @@ function branch() {
   // Get Active SpreadSheet
   var current = SpreadsheetApp.getActiveSpreadsheet();
   
+  // Only Branch from Master
+   if (current.getId().equals(master_Spreadsheet.getId())) {
+     Browser.msgBox("Due to the simplicity of this versioning system, branches are only allowed from the Master Manifest");
+     return
+  }
+  // Check for Branches Page -> if not there, create
+  var master_sheets = master_Spreadsheet.getSheets();
+  var branches_sheet = master_sheets[master_sheets.length - 1];
+  if (branches_sheet.getName() != "Branches" ) {
+     branches_sheet = master_Spreadsheet.insertSheet("Branches");
+  }
+  
   // TO DO - Prompt User for TITLE to then prepend to 'Manifest' and date 
-  var ui = SpreadsheetApp.getUi();
+  /* var ui = SpreadsheetApp.getUi();
   var response = ui.prompt('Enter Title for new Manifest Copy', 'Title:', ui.ButtonSet.OK);
   var Title = response.getResponseText()
+  var Date = Utilities.formatDate(new Date(), "PST", "yyyy-MM-dd HH:mm:ss"); */
   
   // Copy of Active SpreadSheet #TODO -> Optimize, taking too long 
-  var new_ss = current.copy(Title + " (Manifest Copy) - " + Utilities.formatDate(new Date(), "PST", "yyyy-MM-dd HH:mm:ss"));
+  var new_ss = current.copy(Title + " (Manifest Copy) - " + Date);
   var url = new_ss.getUrl();
+  
+  // Add new Branch to Branches Sheet on Master
+  // branches_sheet.appendRow([Title, Date, url]);
   
   // Prompt with link to new copy of Manifest. 
   SpreadsheetApp.setActiveSpreadsheet(new_ss);
@@ -86,7 +82,7 @@ function branch() {
 
 /*   ############### MERGE ################# */ 
 // Merge two children to Master
-function merge_with_other(other_Spreadsheet) {
+function merge_with_other() {
   // Import Master Sheet
   retrieve_master();
   
@@ -96,7 +92,9 @@ function merge_with_other(other_Spreadsheet) {
   // Check to see if already on Master
   if (check_branch(current)) {return;}
   
-  if (other_Spreadsheet == null) {Browser.msgBox("Spreadsheet is Null, check branches");return;};
+  // Import Other Spreadsheet
+  var other_Spreadsheet = retrieve_other();
+  if (other_Spreadsheet == null) {return; };
   
   // Retrieve Corresponding Sheet for Other and Master 
   var c1 = current.getActiveSheet();
@@ -512,7 +510,29 @@ function diff_sheet(sheet_a, sheet_b, _merge) {
 }
 
 
-/*   ############### HELPER FUNCTIONS  ################# */ 
+/*   ############### HELPER FUNCTIONS  ################# */
+// Include file -> used in Html file to include stylesheet
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename)
+      .getContent();
+}
+// Retrieve current master version - may have to alter later - possibly retrieve by Unique Google Sheet ID 
+function retrieve_master() {
+  try { 
+    master_Spreadsheet = SpreadsheetApp.openByUrl("https://docs.google.com/spreadsheets/d/11j392Y2P2tJ8LUgTGVklejheYmTYTQlfPG8aXekVcbc/edit#gid=995555814");
+  } catch(err) {
+    Browser.msgBox("Could not retrieve Master Manifest: " + err);
+  }
+}
+// Check to see if current Branch is already Master Manifest - True if so, false otherwise
+function check_branch(current) {
+  retrieve_master();
+  if (current.getId().equals(master_Spreadsheet.getId())) {
+      Browser.msgBox("You already appear to be on the master copy");
+      return true;
+  }
+  return false; 
+}
 // Helper Function for Deletion - Coordinates and Value
 function deletion(i,j,a_value) {
   var html = "<p>Deletion on coord: (" + (i+1).toString() + ", " + toCol(j) + ")</p>";
