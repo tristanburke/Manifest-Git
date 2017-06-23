@@ -39,7 +39,7 @@ function onOpen() {
           .addItem('Override Master (Robust)', 'override_master'))
       .addSubMenu(ui.createMenu('Pull')
           .addItem('Pull (Sheet)', 'pull_sheet')
-          .addItem('Pull Overwrite (Sheet)', 'pull_override'))
+          .addItem('Pull - Force Overwrite (Sheet)', 'pull_override'))
       .addSeparator()
       .addSubMenu(ui.createMenu("Validate Against Ontology")
           .addItem("Validate Sheet", "validate")
@@ -136,15 +136,14 @@ function merge_with_other() {
     var curr_coord_diff = merge_current_master[i]
     for (var j = 0; j < merge_other_master.length; j++) {
       if (merge_other_master[j] != null) {
-        if (curr_coord_diff[0] == merge_other_master[j][0]) {
-          if (curr_coord_diff[1] == merge_other_master[j][1]){
-            // Mark Conflict for current -> Don't add Diff to diff_master
-            conflict = true;
-            // Store Conlfict in diff_conflict, Format === [i, j, [curr_value, other_value]]
-            diff_conflict.push([curr_coord_diff[0], curr_coord_diff[1], [curr_coord_diff[2], merge_other_master[j][2]]]);
-            // Mark Conflict for other -> Don't add Diff to diff_master, no longer need double reference, marked for quicker looping
-            merge_other_master[j] = null;
-          }
+        var curr_other_diff = merge_other_master[j]
+        if (curr_coord_diff[0] == curr_other_diff[0] && curr_coord_diff[1] == curr_other_diff[1]) {
+          // Mark Conflict for current -> Don't add Diff to diff_master
+          conflict = true;
+          // Store Conlfict in diff_conflict, Format === [i, j, [curr_value, other_value]]
+          diff_conflict.push([curr_coord_diff[0], curr_coord_diff[1], [curr_coord_diff[2], curr_other_diff[2]]]);
+          // Mark Conflict for other -> Don't add Diff to diff_master, no longer need double reference, marked for quicker looping
+          merge_other_master[j] = null;
         }
       }
     }
@@ -322,27 +321,55 @@ function pull_sheet() {
   Browser.msgBox("There are " + diff_conflict.length + " Differences Between Current and Master.\n Press \"OK\" to continue and pick values");
   var ui = SpreadsheetApp.getUi();
   var diff_master = [];
-  for (var i = 0; i < diff_conflict.length; i++) {
-    var curr_diff = diff_conflict[i];
+  for (var index = 0; index < diff_conflict.length; index++) {
     var ui = SpreadsheetApp.getUi();
+    var diff = diff_conflict[index];
+    var i = diff[0]
+    var j = diff[1]
+    var curr_val = diff[2]
+    var master_val = diff[3]
     var response = ui.alert("Press YES to pick Master Manifest value.\n Press NO to pick " + current.getName()
     + " value.\n At Coordinate : ("
-    +  (curr_diff[0]+1).toString() + ", " + toCol(curr_diff[1]) + ")\n\n" + 
-    "YES: Master Copy:  " + m1_values[curr_diff[0]][ curr_diff[1]] + "\n\n" +
-    "NO: "  + current.getName() + ":  " + curr_diff[2] + "\n\n",
+    +  (i+1).toString() + ", " + toCol(j) + ")\n\n" + 
+    "YES: Master Copy:  " + master_val + "\n\n" +
+    "NO: "  + current.getName() + ":  " + curr_val + "\n\n",
     ui.ButtonSet.YES_NO_CANCEL);
   
     // Process the user's response.
     if (response == ui.Button.NO){
-     diff_master.push([curr_diff[0], curr_diff[1], curr_diff[2]]);
+     diff_master.push([i, j, curr_val]);
     } else if (response == ui.Button.YES) {
-     diff_master.push([curr_diff[0], curr_diff[1], m1_values[curr_diff[0]][ curr_diff[1]]]);
+     diff_master.push([i, j, master_val]);
     }  else {
       Browser.msgBox("Pull Aborted. No changes written.");
       return;
     }
   }
+  write_diffs(diff_master, c1);
+  Browser.msgBox("Done. Master Sheet pulled to " + current.getName()); 
+}
+// Override and automatically pull all diffs onto current sheet
+function pull_override() {
+  // Import Master Sheet
+  retrieve_master(); 
+   
+  // Get Active Spreadsheet - current
+  var current = SpreadsheetApp.getActive();
   
+  // Check to see if already on Master
+  if (check_branch(current)) {return;}
+  
+  // Get current sheet on Current spreadsheet, then get get corresponding sheet from Master 
+  var c1 = current.getActiveSheet();
+  var sheet_name = c1.getName();
+  try {
+    var m1 = master_Spreadsheet.getSheetByName(sheet_name);
+  } catch (err) {
+    Browser.msg("It appears this sheet does not exist or has a different name on Master Copy");
+    return;
+  }
+  
+  var diff_master = diff_sheet(c1, m1, true)[1];
   write_diffs(diff_master, c1);
   Browser.msgBox("Done. Master Sheet pulled to " + current.getName()); 
 }
@@ -498,7 +525,7 @@ function diff_sheet(sheet_a, sheet_b, _merge) {
              if (values_b[i][j] != "") { 
                if (!found_diff) { found_diff = true;}
                if (_merge) {
-                  var temp = [i, j, values_b[i][j]];
+                  var temp = [i, j, values_b[i][j].toString(), ""];
                   coord_and_diff.push(temp)
                }
                html += insertion(i,j,values_b[i][j].toString());
@@ -513,7 +540,7 @@ function diff_sheet(sheet_a, sheet_b, _merge) {
             
             // Information for Merging
             if (_merge) {
-              var temp = [i, j, b_value];
+              var temp = [i, j, b_value, a_value];
               coord_and_diff.push(temp)
             }
             // Current no Longer has Value -> Deletion
@@ -546,7 +573,7 @@ function diff_sheet(sheet_a, sheet_b, _merge) {
                 var temp = [i, j, ""];
                 coord_and_diff.push(temp)
               }
-              html += deletion(i,j,values_a[i][j].toString());
+              html += deletion(i,j,"",values_a[i][j].toString());
               deletions++;
             }
           }
